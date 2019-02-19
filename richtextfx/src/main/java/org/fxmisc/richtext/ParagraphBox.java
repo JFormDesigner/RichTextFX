@@ -22,6 +22,7 @@ import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.scene.Node;
+import javafx.scene.control.IndexRange;
 import javafx.scene.layout.Region;
 import javafx.scene.paint.Paint;
 import javafx.scene.text.TextFlow;
@@ -90,9 +91,9 @@ class ParagraphBox<PS, SEG, S> extends Region {
     }
 
     ParagraphBox(Paragraph<PS, SEG, S> par, BiConsumer<TextFlow, PS> applyParagraphStyle,
-                 Function<StyledSegment<SEG, S>, Node> nodeFactory) {
+                 Function<StyledSegment<SEG, S>, Node> nodeFactory, IndexRange initialParSelection) {
         this.getStyleClass().add("paragraph-box");
-        this.text = new ParagraphText<>(par, nodeFactory);
+        this.text = new ParagraphText<>(par, nodeFactory, initialParSelection);
         applyParagraphStyle.accept(this.text, par.getParagraphStyle());
 
         // start at -1 so that the first time it is displayed, the caret at pos 0 is not

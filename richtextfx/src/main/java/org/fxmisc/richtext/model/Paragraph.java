@@ -159,6 +159,10 @@ public final class Paragraph<PS, SEG, S> {
         return Collections.unmodifiableList(segments);
     }
 
+    public SegmentOps<SEG, S> getSegmentOps() {
+        return segmentOps;
+    }
+
     public PS getParagraphStyle() {
         return paragraphStyle;
     }
