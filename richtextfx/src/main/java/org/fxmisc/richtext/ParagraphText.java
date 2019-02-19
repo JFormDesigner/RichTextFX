@@ -1,11 +1,13 @@
 package org.fxmisc.richtext;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiConsumer;
@@ -14,7 +16,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
-
+import javafx.application.Platform;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.value.ChangeListener;
@@ -36,7 +38,9 @@ import javafx.scene.shape.PathElement;
 import javafx.scene.shape.StrokeLineCap;
 
 import javafx.scene.shape.StrokeType;
+import javafx.scene.text.Text;
 import org.fxmisc.richtext.model.Paragraph;
+import org.fxmisc.richtext.model.SegmentOps;
 import org.fxmisc.richtext.model.StyledSegment;
 import org.reactfx.util.Tuple2;
 import org.reactfx.util.Tuples;
@@ -52,6 +56,9 @@ import org.reactfx.value.Val;
  */
 class ParagraphText<PS, SEG, S> extends TextFlowExt {
 
+    private final List<Node> textNodes = new ArrayList<>();
+    private IndexRange textNodesSelectionRange;
+
     private final ObservableSet<CaretNode> carets = FXCollections.observableSet(new HashSet<>(1));
     public final ObservableSet<CaretNode> caretsProperty() { return carets; }
 
@@ -62,15 +69,13 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
     private final ChangeListener<IndexRange> selectionRangeListener;
     private final ChangeListener<Integer> caretPositionListener;
 
-    // FIXME: changing it currently has not effect, because
-    // Text.impl_selectionFillProperty().set(newFill) doesn't work
-    // properly for Text node inside a TextFlow (as of JDK8-b100).
     private final ObjectProperty<Paint> highlightTextFill = new SimpleObjectProperty<>(Color.WHITE);
     public ObjectProperty<Paint> highlightTextFillProperty() {
         return highlightTextFill;
     }
 
     private final Paragraph<PS, SEG, S> paragraph;
+    private final Function<StyledSegment<SEG, S>, Node> nodeFactory;
 
     private final CustomCssShapeHelper<Paint> backgroundShapeHelper;
     private final CustomCssShapeHelper<BorderAttributes> borderShapeHelper;
@@ -79,24 +84,29 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
     // Note: order of children matters because later children cover up earlier children:
     // towards children's 0 index:
     //      background shapes
-    //      selection shapes - always add to selectionShapeStartIndex
+    //      selection shapes
     //      border shapes
     //      text
     //      underline shapes
     //      caret shapes
     // towards getChildren().size() - 1 index
-    private int selectionShapeStartIndex = 0;
 
-    ParagraphText(Paragraph<PS, SEG, S> par, Function<StyledSegment<SEG, S>, Node> nodeFactory) {
+    ParagraphText(Paragraph<PS, SEG, S> par, Function<StyledSegment<SEG, S>, Node> nodeFactory, IndexRange initialParSelection) {
         this.paragraph = par;
+        this.nodeFactory = nodeFactory;
 
         getStyleClass().add("paragraph-text");
 
         Val<Double> leftInset = Val.map(insetsProperty(), Insets::getLeft);
         Val<Double> topInset = Val.map(insetsProperty(), Insets::getTop);
 
-        selectionRangeListener = (obs, ov, nv) -> requestLayout();
+        selectionRangeListener = (obs, ov, nv) -> {
+            updateTextNodes();
+            requestLayout();
+        };
         selections.addListener((MapChangeListener.Change<? extends Selection<PS, SEG, S>, ? extends SelectionPath> change) -> {
+            updateTextNodes();
+
             if (change.wasRemoved()) {
                 SelectionPath p = change.getValueRemoved();
                 p.rangeProperty().removeListener(selectionRangeListener);
@@ -111,7 +121,13 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
                 p.layoutXProperty().bind(leftInset);
                 p.layoutYProperty().bind(topInset);
 
-                getChildren().add(selectionShapeStartIndex, p);
+                int insertIndex = 0;
+                for (Node n : getChildren()) {
+                    if (!(n instanceof BackgroundPath))
+                        break;
+                    insertIndex++;
+                }
+                getChildren().add(insertIndex, p);
                 updateSingleSelection(p);
             }
         });
@@ -137,26 +153,10 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
             }
         });
 
-        // XXX: see the note at highlightTextFill
-//        highlightTextFill.addListener(new ChangeListener<Paint>() {
-//            @Override
-//            public void changed(ObservableValue<? extends Paint> observable,
-//                    Paint oldFill, Paint newFill) {
-//                for(PumpedUpText text: textNodes())
-//                    text.impl_selectionFillProperty().set(newFill);
-//            }
-//        });
-
-        // populate with text nodes
-        par.getStyledSegments().stream().map(nodeFactory).forEach(n -> {
-            if (n instanceof TextExt) {
-                TextExt t = (TextExt) n;
-                // XXX: binding selectionFill to textFill,
-                // see the note at highlightTextFill
-                JavaFXCompatibility.Text_selectionFillProperty(t).bind(t.fillProperty());
-            }
-            getChildren().add(n);
-        });
+        // create text nodes with current selection
+        createTextNodes(initialParSelection);
+        getChildren().addAll(textNodes);
+        textNodesSelectionRange = initialParSelection;
 
         // set up custom css shape helpers
         UnaryOperator<Path> configurePath = shape -> {
@@ -171,8 +171,6 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
 
         Consumer<Collection<Path>> clearUnusedShapes = paths -> getChildren().removeAll(paths);
         Consumer<Path> addToBackground = path -> getChildren().add(0, path);
-        Consumer<Path> addToBackgroundAndIncrementSelectionIndex = addToBackground
-                .andThen(ignore -> selectionShapeStartIndex++);
         Consumer<Path> addToForeground = path -> getChildren().add(path);
         backgroundShapeHelper = new CustomCssShapeHelper<>(
                 createBackgroundShape,
@@ -181,7 +179,7 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
                     backgroundShape.setFill(tuple._1);
                     backgroundShape.getElements().setAll(getRangeShape(tuple._2));
                 },
-                addToBackgroundAndIncrementSelectionIndex,
+                addToBackground,
                 clearUnusedShapes
         );
         borderShapeHelper = new CustomCssShapeHelper<>(
@@ -222,6 +220,124 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
         // this removes listeners (in selections and carets listeners) and avoids memory leaks
         selections.clear();
         carets.clear();
+    }
+
+    private void createTextNodes(IndexRange selectionRange) {
+        int selStart = selectionRange.getStart();
+        int selEnd = selectionRange.getEnd();
+
+        // create text nodes where some text is selected in paragraph
+        // --> split styled segments at selection to assign text color (e.g. white) to selected text
+        SegmentOps<SEG, S> segmentOps = paragraph.getSegmentOps();
+        int start = 0;
+        for (StyledSegment<SEG, S> styledSegment : paragraph.getStyledSegments()) {
+            SEG segment = styledSegment.getSegment();
+            S style = styledSegment.getStyle();
+            int end = start + segmentOps.length(segment);
+
+            if (selEnd <= start || selStart >= end) {
+                // no selection in segment
+                textNodes.add(nodeFactory.apply(styledSegment));
+            } else {
+                // before selection
+                if (selStart > start) {
+                    SEG beforeSegment = segmentOps.subSequence(segment, 0, selStart - start);
+                    textNodes.add(nodeFactory.apply(new StyledSegment<>(beforeSegment, style)));
+                }
+
+                // selection
+                SEG selSegment = segmentOps.subSequence(segment, Math.max(selStart - start, 0), Math.min(selEnd, end) - start);
+                Node n = nodeFactory.apply(new StyledSegment<>(selSegment, style));
+                if (n instanceof Text)
+                    ((Text)n).fillProperty().bind(highlightTextFill);
+                textNodes.add(n);
+
+                // after selection
+                if (selEnd < end) {
+                    SEG afterSegment = segmentOps.subSequence(segment, selEnd - start);
+                    textNodes.add(nodeFactory.apply(new StyledSegment<>(afterSegment, style)));
+                }
+            }
+
+            start = end;
+        }
+    }
+
+    private void updateTextNodes() {
+        // Run later is necessary for click-and-drag selection
+        // to give mouse listeners a chance to start selection.
+        // Without runLater, the text node where the MOUSE_PRESSED event occurs would be
+        // disposed and replaced with a new one, and no MOUSE_DRAGGED event will be fired.
+        Platform.runLater(() -> {
+            updateTextNodesLater();
+        });
+    }
+
+    private void updateTextNodesLater() {
+        IndexRange selectionRange = getMainSelectionRange();
+
+        if (Objects.equals(selectionRange, textNodesSelectionRange))
+            return; // selection not changed
+
+        textNodesSelectionRange = selectionRange;
+
+        // check some cases where it is not necessary to re-create text nodes
+        if (selectionRange.getLength() == 0) {
+            // no text selected --> unbind and reset text color (if necessary)
+            boolean applyCss = false;
+            for (Node n : textNodes) {
+                if (n instanceof Text) {
+                    Text t = (Text) n;
+                    if (t.fillProperty().isBound()) {
+                        t.fillProperty().unbind();
+                        t.setFill(Color.BLACK);
+                        applyCss = true;
+                    }
+                }
+            }
+            if (applyCss)
+                applyCss();
+            return;
+
+        } else if (selectionRange.getStart() == 0 && selectionRange.getEnd() >= paragraph.length()) {
+            // whole text selected --> bind text color to highlightTextFill
+            for (Node n : textNodes) {
+                if (n instanceof Text)
+                    ((Text)n).fillProperty().bind(highlightTextFill);
+            }
+            return;
+        }
+
+        // remember where to insert text nodes
+        int insertIndex = textNodes.isEmpty() ? -1 : getChildren().indexOf(textNodes.get(0));
+
+        // remove old text nodes
+        getChildren().removeAll(textNodes);
+        textNodes.clear();
+
+        // create new text nodes
+        createTextNodes(selectionRange);
+
+        // add all text nodes
+        if (insertIndex >= 0)
+            getChildren().addAll(insertIndex, textNodes);
+        else
+            getChildren().addAll(textNodes);
+
+        // Must apply CSS early, otherwise the selection "jumps" when moving mouse fast
+        // while doing click-and-drag selection. The reason is that monospaced font is
+        // not always applied and PrismTextLayout.getHitInfo(int x, int y) computes
+        // the character index at mouse location using variable-width font, which results
+        // in temporary too large character hit index.
+        applyCss();
+    }
+
+    private IndexRange getMainSelectionRange() {
+        for (Map.Entry<Selection<PS, SEG, S>, SelectionPath> e : selections.entrySet()) {
+            if ("main-selection".equals(e.getKey().getSelectionName()))
+                return e.getValue().rangeProperty().getValue();
+        }
+        return GenericStyledArea.EMPTY_RANGE;
     }
 
     public Paragraph<PS, SEG, S> getParagraph() {

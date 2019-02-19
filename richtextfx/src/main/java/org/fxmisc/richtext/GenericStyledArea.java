@@ -1365,7 +1365,11 @@ public class GenericStyledArea<PS, SEG, S> extends Region
             BiConsumer<TextFlow, PS> applyParagraphStyle,
             Function<StyledSegment<SEG, S>, Node> nodeFactory) {
 
-        ParagraphBox<PS, SEG, S> box = new ParagraphBox<>(paragraph, applyParagraphStyle, nodeFactory);
+        IndexRange initialParSelection = (getSelection().getLength() > 0)
+            ? getParagraphSelection(getParagraphs().indexOf(paragraph))
+            : EMPTY_RANGE;
+
+        ParagraphBox<PS, SEG, S> box = new ParagraphBox<>(paragraph, applyParagraphStyle, nodeFactory, initialParSelection);
 
         box.highlightTextFillProperty().bind(highlightTextFill);
         box.wrapTextProperty().bind(wrapTextProperty());
