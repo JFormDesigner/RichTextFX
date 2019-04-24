@@ -31,7 +31,7 @@ Table of Contents
   * [Stable](#stable-release)
   * [Snapshot](#snapshot-releases)
 * API Documentation (Javadoc)
-  * [0.9.2](http://fxmisc.github.io/richtext/javadoc/0.9.1/org/fxmisc/richtext/package-summary.html)
+  * [0.10.0](http://fxmisc.github.io/richtext/javadoc/0.9.1/org/fxmisc/richtext/package-summary.html)
 * [License](#license)
 * [Contributing](./CONTRIBUTING.md)
 
@@ -57,6 +57,7 @@ Who uses RichTextFX?
 - [JDialogue](https://github.com/SkyAphid/JDialogue)
 - [George](http://www.george.andante.no)
 - [Nearde IDE](https://github.com/VenityStudio/Nearde-IDE)
+- [Astro IDE](https://github.com/AmrDeveloper/Astro)
 
 If you use RichTextFX in an interesting project, I would like to know!
 
@@ -142,31 +143,31 @@ Download
 
 ### Stable release
 
-Current stable release is 0.9.2.
+Current stable release is 0.10.0 which is a multi-release JAR that is compatible with Java 9 and UP without the need for `add-exports` or `add-opens` JVM arguments. 
 
 #### Maven coordinates
 
 | Group ID            | Artifact ID | Version |
 | :-----------------: | :---------: | :-----: |
-| org.fxmisc.richtext | richtextfx  | 0.9.2  |
+| org.fxmisc.richtext | richtextfx  | 0.10.0  |
 
 #### Gradle example
 
 ```groovy
 dependencies {
-    compile group: 'org.fxmisc.richtext', name: 'richtextfx', version: '0.9.2'
+    compile group: 'org.fxmisc.richtext', name: 'richtextfx', version: '0.10.0'
 }
 ```
 
 #### Sbt example
 
 ```scala
-libraryDependencies += "org.fxmisc.richtext" % "richtextfx" % "0.9.2"
+libraryDependencies += "org.fxmisc.richtext" % "richtextfx" % "0.10.0"
 ```
 
 #### Manual download
 
-Download [the JAR file](https://github.com/TomasMikula/RichTextFX/releases/download/v0.9.2/richtextfx-0.9.2.jar) or [the fat JAR file (including dependencies)](https://github.com/TomasMikula/RichTextFX/releases/download/v0.9.2/richtextfx-fat-0.9.2.jar) and place it on your classpath.
+Download [the JAR file](https://github.com/TomasMikula/RichTextFX/releases/download/v0.10.0/richtextfx-0.10.0.jar) or [the fat JAR file (including dependencies)](https://github.com/TomasMikula/RichTextFX/releases/download/v0.10.0/richtextfx-fat-0.10.0.jar) and place it on your classpath.
 
 ### Snapshot releases
 
