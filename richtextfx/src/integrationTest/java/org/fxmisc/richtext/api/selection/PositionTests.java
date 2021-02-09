@@ -31,6 +31,24 @@ public class PositionTests extends InlineCssTextAreaAppTest {
     private void selectRight() {
         selection.selectRange(leftText.length(), area.getLength());
     }
+    
+    @Test
+    public void initial_range_specified_via_constructor_is_honored() {
+        interact(() -> {
+            area.appendText( "\n"+ fullText );
+            area.appendText( "\n"+ fullText );
+        });
+
+    	int paragraphOne = 1;
+    	int start = area.getAbsolutePosition( paragraphOne, leftText.length() );
+    	int end = start + rightText.length();
+
+    	Selection s0 = new SelectionImpl<>( "constructor", area, start, end );
+    	assertEquals( leftText.length(), s0.getStartColumnPosition() );
+    	assertEquals( paragraphOne, s0.getStartParagraphIndex() );
+
+    	interact( () -> area.replaceText(fullText) );
+    }
 
     @Test
     public void start_position_is_correct_when_change_occurs_before_position() {
@@ -159,6 +177,7 @@ public class PositionTests extends InlineCssTextAreaAppTest {
         });
     }
 
+    @Test
     public void deletion_which_includes_selection_and_which_occurs_at_end_of_area_moves_selection_to_new_area_end() {
         interact(() -> {
            selection.selectRange(area.getLength(), area.getLength());
@@ -166,5 +185,17 @@ public class PositionTests extends InlineCssTextAreaAppTest {
            assertEquals(area.getLength(), selection.getStartPosition());
            assertEquals(area.getLength(), selection.getEndPosition());
         });
+    }
+    
+    @Test
+    public void anchor_updates_correctly_with_listener_attached() {
+        interact(() -> {
+            area.clear();
+            area.anchorProperty().addListener( (ob,ov,nv) -> nv++ );
+            area.appendText("asdf");
+            area.selectRange(1,2);
+            assertEquals("s",area.getSelectedText());
+            assertEquals(1,area.getAnchor());
+         });
     }
 }

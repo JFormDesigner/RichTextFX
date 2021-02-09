@@ -1,5 +1,103 @@
 # Change Log
 
+## [v0.10.5](https://github.com/FXMisc/RichTextFX/tree/v0.10.5) (2020-04-19)
+[Full Changelog](https://github.com/FXMisc/RichTextFX/compare/v0.10.4...v0.10.5)
+
+**Implemented enhancements:**
+
+- Upgraded Gradle Maven plugin [\#910](https://github.com/FXMisc/RichTextFX/pull/910)
+- Provide suspendable undo manager and test [\#914](https://github.com/FXMisc/RichTextFX/pull/914)
+- Added getLocale and setLocale for BreakIterator use [\#920](https://github.com/FXMisc/RichTextFX/pull/920)
+- Allow ALT and ALT + CONTROL (or ALTGR on Windows) accelerators [\#922](https://github.com/FXMisc/RichTextFX/pull/922)
+
+**Fixed bugs:**
+
+- Bug: Fixed SelectionImpl not honouring constructor range [\#907](https://github.com/FXMisc/RichTextFX/pull/907)
+- Bug: Fixed RichTextChange reported by ReadOnlyStyledDocument replace [\#908](https://github.com/FXMisc/RichTextFX/pull/908)
+- Bug: Fixed post undo/redo caret position [\#915](https://github.com/FXMisc/RichTextFX/pull/915)
+- Bug: Fixed tests not on FX thread [\#917](https://github.com/FXMisc/RichTextFX/pull/917)
+- Bug: Fixed scrollbar jump [\#918](https://github.com/FXMisc/RichTextFX/pull/918), also alternative fix for visibleParToAllParIndex crashing [\#777](https://github.com/FXMisc/RichTextFX/issues/777)
+- Bug: Fixed focus lost on right click [\#921](https://github.com/FXMisc/RichTextFX/pull/921) (Thank you [gaeqs](https://github.com/gaeqs))
+
+## [v0.10.4](https://github.com/FXMisc/RichTextFX/tree/v0.10.4) (2020-02-19)
+[Full Changelog](https://github.com/FXMisc/RichTextFX/compare/v0.10.3...v0.10.4)
+
+**Implemented enhancements:**
+
+- Added convenience method to UndoUtils to create a NO OP undo manager [\#881](https://github.com/FXMisc/RichTextFX/issues/881)
+- Added styled text fields [\#894](https://github.com/FXMisc/RichTextFX/pull/894), [\#895](https://github.com/FXMisc/RichTextFX/pull/895), [\#896](https://github.com/FXMisc/RichTextFX/pull/896) & [\#897](https://github.com/FXMisc/RichTextFX/pull/897)
+- Added place holder to GenericStyledArea [\#899](https://github.com/FXMisc/RichTextFX/pull/899) [\#900](https://github.com/FXMisc/RichTextFX/pull/900)
+- Added prompt text to StyledTextField [\#899](https://github.com/FXMisc/RichTextFX/pull/899)
+- Added Automatic-Module-Name
+- Bumped to Flowless 0.6.1
+
+**Fixed bugs:**
+
+- Bug: Fixed paragraph graphic creation if index is -1 [\#882](https://github.com/FXMisc/RichTextFX/pull/882)
+- Bug: Fixed Java 9 code [\#887](https://github.com/FXMisc/RichTextFX/pull/887/files) and [\#888](https://github.com/FXMisc/RichTextFX/pull/888)
+- Bug: Fixed memory leak in ParagraphText [\#893](https://github.com/FXMisc/RichTextFX/pull/893)
+
+## [v0.10.3](https://github.com/FXMisc/RichTextFX/tree/v0.10.3) (2019-11-27)
+[Full Changelog](https://github.com/FXMisc/RichTextFX/compare/v0.10.2...v0.10.3)
+
+**Implemented enhancements:**
+
+- Added shift backspace to delete backward [\#855](https://github.com/FXMisc/RichTextFX/issues/855)
+- Added methods to recreate or get a paragraph graphic [\#854](https://github.com/FXMisc/RichTextFX/issues/854)
+- Added methods to preset the style of inserted text and paragraphs [\#864](https://github.com/FXMisc/RichTextFX/issues/864)
+- Added convenience API to EditActions and StyleClassedTextArea [\#868](https://github.com/FXMisc/RichTextFX/issues/868)
+- Added Bullet Lists to RichTextDemo [\#826](https://github.com/FXMisc/RichTextFX/issues/826) 
+
+**Fixed bugs:**
+
+- Bug: Fixed line highlighter not adjusting to area's width changes [\#845](https://github.com/FXMisc/RichTextFX/pull/845#issuecomment-540535109)
+- Bug: Fixed not highlighting from beginning of line after adding text when empty [\#845](https://github.com/FXMisc/RichTextFX/pull/845#issuecomment-552252829)
+- Bug: Fixed line spacing not being applied between paragraphs [\#862](https://github.com/FXMisc/RichTextFX/issues/862)
+- Bug: Fixed anchor properties not updating correctly with listeners [\#874](https://github.com/FXMisc/RichTextFX/issues/874) 
+
+**Other:**
+
+- Balanced linespacing above and below text for better highlighting look [\#872](https://github.com/FXMisc/RichTextFX/issues/872)
+- Changed styled-text-area CSS [\#738](https://github.com/FXMisc/RichTextFX/issues/738#issuecomment-555592054) 
+
+## [v0.10.2](https://github.com/FXMisc/RichTextFX/tree/v0.10.2) (2019-08-29)
+[Full Changelog](https://github.com/FXMisc/RichTextFX/compare/v0.10.1...v0.10.2)
+
+**Implemented enhancements:**
+
+- Added line highlighter enhancement [\#845](https://github.com/FXMisc/RichTextFX/issues/845)
+- Enhanced CodeArea selection to include underscore [\#837](https://github.com/FXMisc/RichTextFX/issues/837)
+- Added auto-indent on enter to JavaKeywordsDemo  [\#846](https://github.com/FXMisc/RichTextFX/issues/846)
+
+**Fixed bugs:**
+
+- Bug: Fixed caret position off by one on wrapped multiline [\#834](https://github.com/FXMisc/RichTextFX/issues/834)
+- Bug: Fix highlight fill property not working since 0.9.0 [\#844](https://github.com/FXMisc/RichTextFX/issues/844)
+
+**Merged pull requests:**
+
+- Added Chorus to 'Who uses RichTextFX?' [\#825](https://github.com/FXMisc/RichTextFX/pull/825) ([iAmGio](https://github.com/iAmGio))
+- Added EpubFx 'Who uses RichTextFX?' [\#828](https://github.com/FXMisc/RichTextFX/pull/828) ([finanzer](https://github.com/finanzer))
+
+## [v0.10.1](https://github.com/FXMisc/RichTextFX/tree/v0.10.1) (2019-05-20)
+[Full Changelog](https://github.com/FXMisc/RichTextFX/compare/v0.10.0...v0.10.1)
+
+**Implemented enhancements:**
+
+- Changed page up and down behaviour [\#688](https://github.com/FXMisc/RichTextFX/issues/688)
+- Remove deprecated methods [\#818](https://github.com/FXMisc/RichTextFX/issues/818)
+
+**Fixed bugs:**
+
+- Bug: CodeArea caretBounds graphic bug [\#812](https://github.com/FXMisc/RichTextFX/issues/812)
+- Bug: Undo after deleting styled text causes exception [\#815](https://github.com/FXMisc/RichTextFX/issues/815)
+
+**Merged pull requests:**
+
+- Enhancement: Changed page up and down behaviour [\#821](https://github.com/FXMisc/RichTextFX/pull/821) ([Jurgen Doll](https://github.com/Jugen))
+- Fix bug: Fix Paragraph returning incorrectly styled subsequence [\#817](https://github.com/FXMisc/RichTextFX/pull/817) ([Jugen](https://github.com/Jugen))
+- Fix bug: Fix for #812 caretBounds graphic bug [\#819 and \#822](https://github.com/FXMisc/RichTextFX/pull/819) ([Jugen](https://github.com/Jugen))
+
 ## [v0.10.0](https://github.com/FXMisc/RichTextFX/tree/v0.10.0) (2019-04-18)
 [Full Changelog](https://github.com/FXMisc/RichTextFX/compare/v0.9.3...v0.10.0)
 

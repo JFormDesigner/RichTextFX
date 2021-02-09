@@ -17,6 +17,14 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import javafx.application.Platform;
+
+import org.fxmisc.richtext.model.Paragraph;
+import org.fxmisc.richtext.model.SegmentOps;
+import org.fxmisc.richtext.model.StyledSegment;
+import org.reactfx.util.Tuple2;
+import org.reactfx.util.Tuples;
+import org.reactfx.value.Val;
+
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.value.ChangeListener;
@@ -36,15 +44,8 @@ import javafx.scene.shape.MoveTo;
 import javafx.scene.shape.Path;
 import javafx.scene.shape.PathElement;
 import javafx.scene.shape.StrokeLineCap;
-
 import javafx.scene.shape.StrokeType;
 import javafx.scene.text.Text;
-import org.fxmisc.richtext.model.Paragraph;
-import org.fxmisc.richtext.model.SegmentOps;
-import org.fxmisc.richtext.model.StyledSegment;
-import org.reactfx.util.Tuple2;
-import org.reactfx.util.Tuples;
-import org.reactfx.value.Val;
 
 /**
  * The class responsible for rendering the segments in an paragraph. It also renders additional RichTextFX-specific
@@ -66,8 +67,8 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
             FXCollections.observableMap(new HashMap<>(1));
     public final ObservableMap<Selection<PS, SEG, S>, SelectionPath> selectionsProperty() { return selections; }
 
-    private final ChangeListener<IndexRange> selectionRangeListener;
-    private final ChangeListener<Integer> caretPositionListener;
+    private final MapChangeListener<? super Selection<PS, SEG, S>, ? super SelectionPath> selectionPathListener;
+    private final SetChangeListener<? super CaretNode> caretNodeListener;
 
     private final ObjectProperty<Paint> highlightTextFill = new SimpleObjectProperty<>(Color.WHITE);
     public ObjectProperty<Paint> highlightTextFillProperty() {
@@ -100,11 +101,11 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
         Val<Double> leftInset = Val.map(insetsProperty(), Insets::getLeft);
         Val<Double> topInset = Val.map(insetsProperty(), Insets::getTop);
 
-        selectionRangeListener = (obs, ov, nv) -> {
+        ChangeListener<IndexRange> selectionRangeListener = (obs, ov, nv) -> {
             updateTextNodes();
             requestLayout();
         };
-        selections.addListener((MapChangeListener.Change<? extends Selection<PS, SEG, S>, ? extends SelectionPath> change) -> {
+        selectionPathListener = change -> {
             updateTextNodes();
 
             if (change.wasRemoved()) {
@@ -130,10 +131,11 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
                 getChildren().add(insertIndex, p);
                 updateSingleSelection(p);
             }
-        });
+        };
+        selections.addListener( selectionPathListener );
 
-        caretPositionListener = (obs, ov, nv) -> requestLayout();
-        carets.addListener((SetChangeListener.Change<? extends CaretNode> change) -> {
+        ChangeListener<Integer> caretPositionListener = (obs, ov, nv) -> requestLayout();
+        caretNodeListener = change -> {
             if (change.wasRemoved()) {
                 CaretNode caret = change.getElementRemoved();
                 caret.columnPositionProperty().removeListener(caretPositionListener);
@@ -151,7 +153,8 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
                 getChildren().add(caret);
                 updateSingleCaret(caret);
             }
-        });
+        };
+        carets.addListener( caretNodeListener );
 
         // create text nodes with current selection
         createTextNodes(initialParSelection);
@@ -217,9 +220,17 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
     }
 
     void dispose() {
-        // this removes listeners (in selections and carets listeners) and avoids memory leaks
-        selections.clear();
         carets.clear();
+        selections.clear();
+        // The above must be before the below to prevent any memory leaks.
+        // Then remove listeners to also avoid memory leaks.
+        selections.removeListener( selectionPathListener );
+        carets.removeListener( caretNodeListener );
+
+        getChildren().stream().filter( n -> n instanceof TextExt ).map( n -> (TextExt) n )
+        .forEach( t -> JavaFXCompatibility.Text_selectionFillProperty(t).unbind() ); 
+
+        getChildren().clear();
     }
 
     private void createTextNodes(IndexRange selectionRange) {
@@ -346,7 +357,7 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
 
     public <T extends Node & Caret> double getCaretOffsetX(T caret) {
         layout(); // ensure layout, is a no-op if not dirty
-        checkWithinParagraph(caret);
+        if ( isVisible() /* notFolded */ ) checkWithinParagraph(caret);
         Bounds bounds = caret.getLayoutBounds();
         return (bounds.getMinX() + bounds.getMaxX()) / 2;
     }
@@ -473,7 +484,7 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
             } else {
                 shape = getRangeShape(start, paragraph.length());
                 // Since this might be a wrapped multi-line paragraph,
-                // there may be multiple groups of (1 MoveTo, 3 LineTo objects) for each line:
+                // there may be multiple groups of (1 MoveTo, 4 LineTo objects) for each line:
                 // MoveTo(topLeft), LineTo(topRight), LineTo(bottomRight), LineTo(bottomLeft)
 
                 // We only need to adjust the top right and bottom right corners to extend to the
@@ -487,6 +498,22 @@ class ParagraphText<PS, SEG, S> extends TextFlowExt {
                     shape[topRightIndex] = new LineTo(getWidth(), lineToTopRight.getY());
                     shape[bottomRightIndex] = new LineTo(getWidth(), getHeight());
                 }
+            }
+        }
+
+        if ( getLineSpacing() > 0 ) {
+            double half = getLineSpacing() / 2.0;
+            for ( int g = 0; g < shape.length; g += 5 ) {
+                MoveTo tl = (MoveTo) shape[g];
+                tl.setY( tl.getY()-half );
+                LineTo tr = (LineTo) shape[g+1];
+                tr.setY( tl.getY() );
+                LineTo br = (LineTo) shape[g+2];
+                br.setY( br.getY()+half );
+                LineTo bl = (LineTo) shape[g+3];
+                bl.setY( br.getY() );
+                LineTo t2 = (LineTo) shape[g+4];
+                t2.setY( tl.getY() );
             }
         }
 

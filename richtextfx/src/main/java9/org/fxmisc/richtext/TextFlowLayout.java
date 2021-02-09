@@ -21,14 +21,15 @@ import javafx.scene.text.TextFlow;
 class TextFlowLayout
 {
     private TextFlow flow;
-    private List<Node>  children;
     private List<TextFlowSpan> lineMetrics = new ArrayList<>();
     private int lineCount = -1;
 
-    TextFlowLayout( TextFlow tf, List<Node> managedChildren ) {
+    private static final TextFlowSpan EMPTY_SPAN = new TextFlowSpan( 0, 0, 0, 0, 0 );
+
+
+    TextFlowLayout( TextFlow tf ) {
         tf.getChildren().addListener( (Observable ob) -> lineCount = -1 );
         tf.widthProperty().addListener( (Observable ob) -> lineCount = -1 );
-        children = managedChildren;
         flow = tf;
     }
 
@@ -44,7 +45,7 @@ class TextFlowLayout
 
 
     TextFlowSpan getLineSpan( int lineNo ) {
-        return getLineCount() > 0 ? lineMetrics.get( lineNo ) : null;
+        return getLineCount() > 0 ? lineMetrics.get( lineNo ) : EMPTY_SPAN;
     }
 
 
@@ -68,12 +69,13 @@ class TextFlowLayout
     int getLineCount() {
        
         if ( lineCount > -1 ) return lineCount;
-        
+
+        lineCount = 0;
         lineMetrics.clear();
         double totLines = 0.0, prevMinY = 1.0, prevMaxY = -1.0;
         int totCharSoFar = 0;
 
-        for ( Node n : children ) {
+        for ( Node n : flow.getChildren() ) if ( n.isManaged() ) {
            
             Bounds nodeBounds = n.getBoundsInParent();
             int length = (n instanceof Text) ? ((Text) n).getText().length() : 1;

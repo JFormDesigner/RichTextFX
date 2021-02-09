@@ -26,7 +26,7 @@ class TextFlowExt extends TextFlow {
     private TextFlowLayout textLayout()
     {
         if ( layout == null ) {
-            layout = new TextFlowLayout( this, getManagedChildren() );
+            layout = new TextFlowLayout( this );
         }
         return layout;
     }
@@ -43,9 +43,9 @@ class TextFlowExt extends TextFlow {
 
     int getLineEndPosition(int charIdx) {
         TwoLevelNavigator navigator = textLayout().getTwoLevelNavigator();
-        int currentLineIndex = navigator.offsetToPosition(charIdx, Forward).getMajor();
-        int minor = (currentLineIndex == getLineCount() - 1) ? 0 : -1;
-        return navigator.position(currentLineIndex + 1, minor).toOffset();
+        int currentLineIndex = navigator.offsetToPosition(charIdx, Forward).getMajor() + 1;
+        int minor = (currentLineIndex == getLineCount()) ? 0 : -1;
+        return navigator.position(currentLineIndex, minor).toOffset();
     }
 
     int getLineOfCharacter(int charIdx) {
@@ -109,10 +109,14 @@ class TextFlowExt extends TextFlow {
         int charIdx = hit.getCharIndex();
         boolean leading = hit.isLeading();
 
-        if ( ! leading ) {
+        if (y >= span.getBounds().getMaxY()) {
+            return CharacterHit.insertionAt(charIdx);
+        }
+
+        if ( ! leading && getLineCount() > 1) {
             // If this is a wrapped paragraph and hit character is at end of hit line, make sure that the
             // "character hit" stays at the end of the hit line (and not at the beginning of the next line).
-            leading = (getLineCount() > 1 && charIdx + 1 >= span.getStart() + span.getLength());
+            leading = (getLineOfCharacter(charIdx) + 1 < getLineCount() && charIdx + 1 >= span.getStart() + span.getLength());
         }
 
         if(x < lineBounds.getMinX() || x > lineBounds.getMaxX()) {

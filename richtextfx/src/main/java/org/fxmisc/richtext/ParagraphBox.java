@@ -79,6 +79,9 @@ class ParagraphBox<PS, SEG, S> extends Region {
         wrapText.addListener((obs, old, w) -> requestLayout());
     }
 
+    private final Val<Boolean> isFolded;
+    public boolean isFolded() { return isFolded.getValue(); }
+
     private final Var<Integer> index;
     public Val<Integer> indexProperty() { return index; }
     public void setIndex(int index) { this.index.setValue(index); }
@@ -95,7 +98,8 @@ class ParagraphBox<PS, SEG, S> extends Region {
         this.getStyleClass().add("paragraph-box");
         this.text = new ParagraphText<>(par, nodeFactory, initialParSelection);
         applyParagraphStyle.accept(this.text, par.getParagraphStyle());
-
+        isFolded = Val.wrap( text.visibleProperty().not() );
+        
         // start at -1 so that the first time it is displayed, the caret at pos 0 is not
         // accidentally removed from its parent and moved to this node's ParagraphText
         // before this node gets updated to its real index and therefore removes
@@ -106,7 +110,7 @@ class ParagraphBox<PS, SEG, S> extends Region {
         graphic = Val.combine(
                 graphicFactory,
                 this.index,
-                (f, i) -> f != null ? f.apply(i) : null);
+                (f, i) -> f != null && i > -1 ? f.apply(i) : null);
         graphic.addListener((obs, oldG, newG) -> {
             if(oldG != null) {
                 getChildren().remove(oldG);
@@ -134,6 +138,14 @@ class ParagraphBox<PS, SEG, S> extends Region {
 
     Paragraph<PS, SEG, S> getParagraph() {
         return text.getParagraph();
+    }
+    
+    Node getGraphic() {
+        if(graphic.isPresent()) {
+            return graphic.getValue();
+        } else {
+            return null;
+        }
     }
 
     public EventStream<Either<Tuple2<Point2D, Integer>, Object>> stationaryIndices(Duration delay) {
@@ -228,20 +240,21 @@ class ParagraphBox<PS, SEG, S> extends Region {
 
     @Override
     protected double computePrefHeight(double width) {
+        if ( isFolded.getValue() ) return 0.0;
         Insets insets = getInsets();
         double overhead = getGraphicPrefWidth() + insets.getLeft() + insets.getRight();
-        return text.prefHeight(width - overhead) + insets.getTop() + insets.getBottom();
+        return text.prefHeight(width - overhead) + insets.getTop() + insets.getBottom() + text.getLineSpacing();
     }
 
     @Override
-    protected
-    void layoutChildren() {
+    protected void layoutChildren() {
         Insets ins = getInsets();
         double w = getWidth() - ins.getLeft() - ins.getRight();
         double h = getHeight() - ins.getTop() - ins.getBottom();
         double graphicWidth = getGraphicPrefWidth();
+        double half = text.getLineSpacing() / 2.0;
 
-        text.resizeRelocate(graphicWidth + ins.getLeft(), ins.getTop(), w - graphicWidth, h);
+        text.resizeRelocate(graphicWidth + ins.getLeft(), ins.getTop() + half, w - graphicWidth, h - half);
 
         graphic.ifPresent(g -> g.resizeRelocate(graphicOffset.get() + ins.getLeft(), ins.getTop(), graphicWidth, h));
     }

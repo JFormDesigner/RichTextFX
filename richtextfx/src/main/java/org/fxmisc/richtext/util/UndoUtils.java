@@ -7,7 +7,12 @@ import org.fxmisc.richtext.model.RichTextChange;
 import org.fxmisc.richtext.model.TextChange;
 import org.fxmisc.undo.UndoManager;
 import org.fxmisc.undo.UndoManagerFactory;
-import org.reactfx.EventStream;
+import org.fxmisc.undo.impl.MultiChangeUndoManagerImpl;
+import org.fxmisc.undo.impl.UnlimitedChangeQueue;
+import org.reactfx.SuspendableYes;
+import org.reactfx.value.Val;
+
+import javafx.beans.value.ObservableBooleanValue;
 
 import java.time.Duration;
 import java.util.List;
@@ -33,6 +38,37 @@ public final class UndoUtils {
         return area.isPreserveStyle()
                 ? richTextUndoManager(area)
                 : plainTextUndoManager(area);
+    }
+
+    /**
+     * Constructs an UndoManager with no history
+     */
+    public static UndoManager noOpUndoManager() {
+        return new UndoManager() {
+
+            private final Val<Boolean> alwaysFalse = Val.constant(false);
+
+            @Override public boolean undo() { return false; }
+            @Override public boolean redo() { return false; }
+            @Override public Val<Boolean> undoAvailableProperty() { return alwaysFalse; }
+            @Override public boolean isUndoAvailable() { return false; }
+            @Override public Val<Boolean> redoAvailableProperty() { return alwaysFalse; }
+            @Override public boolean isRedoAvailable() { return false; }
+            @Override public boolean isPerformingAction() { return false; }
+            @Override public boolean isAtMarkedPosition() { return false; }
+
+            // not sure whether these may throw NPEs at some point
+            @Override public Val nextUndoProperty() { return null; }
+            @Override public Val nextRedoProperty() { return null; }
+            @Override public ObservableBooleanValue performingActionProperty() { return null; }
+            @Override public UndoPosition getCurrentPosition() { return null; }
+            @Override public ObservableBooleanValue atMarkedPositionProperty() { return null; }
+
+            // ignore these
+            @Override public void preventMerge() { }
+            @Override public void forgetHistory() { }
+            @Override public void close() { }
+        };
     }
 
     /* ********************************************************************** *
@@ -86,6 +122,38 @@ public final class UndoUtils {
                 TextChange::mergeWith,
                 TextChange::isIdentity,
                 preventMergeDelay);
+    };
+
+    /**
+     * Returns an UndoManager with an unlimited history that can undo/redo {@link RichTextChange}s. New changes
+     * emitted from the stream will not be merged with the previous change after {@link #DEFAULT_PREVENT_MERGE_DELAY}
+     * <p><b>Note</b>: that <u>only styling changes</u> may occur <u>during suspension</u> of the undo manager.
+     */
+    public static <PS, SEG, S> UndoManager<List<RichTextChange<PS, SEG, S>>> richTextSuspendableUndoManager(
+            GenericStyledArea<PS, SEG, S> area, SuspendableYes suspendUndo) {
+        return richTextSuspendableUndoManager(area, DEFAULT_PREVENT_MERGE_DELAY, suspendUndo);
+    }
+
+    /**
+     * Returns an UndoManager with an unlimited history that can undo/redo {@link RichTextChange}s. New changes
+     * emitted from the stream will not be merged with the previous change after {@code preventMergeDelay}.
+     * <p><b>Note</b>: that <u>only styling changes</u> may occur <u>during suspension</u> of the undo manager.
+     */
+    public static <PS, SEG, S> UndoManager<List<RichTextChange<PS, SEG, S>>> richTextSuspendableUndoManager(
+            GenericStyledArea<PS, SEG, S> area, Duration preventMergeDelay, SuspendableYes suspendUndo) {
+
+        RichTextChange.skipStyleComparison( true );
+
+        return new MultiChangeUndoManagerImpl<>
+        (
+            new UnlimitedChangeQueue<>(),
+            TextChange::invert,
+            applyMultiRichTextChange(area),
+            TextChange::mergeWith,
+            TextChange::isIdentity,
+            area.multiRichChanges().conditionOn(suspendUndo),
+            preventMergeDelay
+        );
     };
 
     /**
@@ -146,7 +214,10 @@ public final class UndoUtils {
      * by {@code area.replaceText(change.getPosition(), change.getRemovalEnd(), change.getInserted()}.
      */
     public static <PS, SEG, S> Consumer<PlainTextChange> applyPlainTextChange(GenericStyledArea<PS, SEG, S> area) {
-        return change -> area.replaceText(change.getPosition(), change.getRemovalEnd(), change.getInserted());
+        return change -> {
+            area.replaceText(change.getPosition(), change.getRemovalEnd(), change.getInserted());
+            moveToChange( area, change );
+        };
     }
 
     /**
@@ -155,7 +226,10 @@ public final class UndoUtils {
      */
     public static <PS, SEG, S> Consumer<RichTextChange<PS, SEG, S>> applyRichTextChange(
             GenericStyledArea<PS, SEG, S> area) {
-        return change -> area.replace(change.getPosition(), change.getRemovalEnd(), change.getInserted());
+        return change -> {
+            area.replace(change.getPosition(), change.getRemovalEnd(), change.getInserted());
+            moveToChange( area, change );
+        };
     }
 
     /**
@@ -170,6 +244,7 @@ public final class UndoUtils {
                 builder.replaceTextAbsolutely(c.getPosition(), c.getRemovalEnd(), c.getInserted());
             }
             builder.commit();
+            moveToChange( area, changeList.get( changeList.size()-1 ) );
         };
     }
 
@@ -185,7 +260,20 @@ public final class UndoUtils {
                 builder.replaceAbsolutely(c.getPosition(), c.getRemovalEnd(), c.getInserted());
             }
             builder.commit();
+            moveToChange( area, changeList.get( changeList.size()-1 ) );
         };
     }
 
+    /*
+     * Address #912 "After undo/redo, new text is inserted at the end".
+     * Without breaking PositionTests. (org.fxmisc.richtext.api.caret)
+     */
+    private static void moveToChange( GenericStyledArea area, TextChange chg )
+    {
+        int pos = chg.getPosition();
+        int len = chg.getNetLength();
+        if ( len > 0 ) pos += len;
+
+        area.moveTo( Math.min( pos, area.getLength() ) );
+    }
 }

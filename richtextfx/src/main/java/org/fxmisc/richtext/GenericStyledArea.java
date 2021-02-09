@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
@@ -15,8 +16,13 @@ import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.function.IntSupplier;
 import java.util.function.IntUnaryOperator;
+import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 
+import javafx.application.ConditionalFeature;
+import javafx.application.Platform;
 import javafx.beans.NamedArg;
+import javafx.beans.binding.Bindings;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.ObjectProperty;
@@ -25,6 +31,7 @@ import javafx.beans.property.SimpleDoubleProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.value.ObservableValue;
 import javafx.collections.FXCollections;
+import javafx.collections.ListChangeListener.Change;
 import javafx.collections.ObservableSet;
 import javafx.css.CssMetaData;
 import javafx.css.PseudoClass;
@@ -40,6 +47,9 @@ import javafx.geometry.Point2D;
 import javafx.scene.Node;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.IndexRange;
+import javafx.scene.input.InputMethodEvent;
+import javafx.scene.input.InputMethodRequests;
+import javafx.scene.input.InputMethodTextRun;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.Background;
 import javafx.scene.layout.BackgroundFill;
@@ -47,6 +57,8 @@ import javafx.scene.layout.CornerRadii;
 import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.Paint;
+import javafx.scene.shape.LineTo;
+import javafx.scene.shape.PathElement;
 import javafx.scene.text.TextFlow;
 
 import org.fxmisc.flowless.Cell;
@@ -314,12 +326,6 @@ public class GenericStyledArea<PS, SEG, S> extends Region
      * ********************************************************************** */
 
     /**
-     * Background fill for highlighted text.
-     */
-    private final StyleableObjectProperty<Paint> highlightFill
-            = new CustomStyleableProperty<>(Color.DODGERBLUE, "highlightFill", this, HIGHLIGHT_FILL);
-
-    /**
      * Text color for highlighted text.
      */
     private final StyleableObjectProperty<Paint> highlightTextFill
@@ -347,9 +353,24 @@ public class GenericStyledArea<PS, SEG, S> extends Region
     // undo manager
     private UndoManager undoManager;
     @Override public UndoManager getUndoManager() { return undoManager; }
+    /**
+     * @param undoManager may be null in which case a no op undo manager will be set.
+     */
     @Override public void setUndoManager(UndoManager undoManager) {
         this.undoManager.close();
-        this.undoManager = undoManager;
+        this.undoManager = undoManager != null ? undoManager : UndoUtils.noOpUndoManager();
+    }
+
+    private Locale textLocale = Locale.getDefault();
+    /**
+     * This is used to determine word and sentence breaks while navigating or selecting.
+     * Override this method if your paragraph or text style accommodates Locales as well.
+     * @return Locale.getDefault() by default
+     */
+    @Override
+    public Locale getLocale() { return textLocale; }
+    public void setLocale( Locale editorLocale ) {
+        textLocale = editorLocale;
     }
 
     private final ObjectProperty<Duration> mouseOverTextDelay = new SimpleObjectProperty<>(null);
@@ -357,7 +378,26 @@ public class GenericStyledArea<PS, SEG, S> extends Region
 
     private final ObjectProperty<IntFunction<? extends Node>> paragraphGraphicFactory = new SimpleObjectProperty<>(null);
     @Override public ObjectProperty<IntFunction<? extends Node>> paragraphGraphicFactoryProperty() { return paragraphGraphicFactory; }
+    
+    public void recreateParagraphGraphic( int parNdx ) {
+        ObjectProperty<IntFunction<? extends Node>> gProp;
+        gProp = getCell(parNdx).graphicFactoryProperty();
+        gProp.unbind();
+        gProp.bind(paragraphGraphicFactoryProperty());
+    }
 
+    public Node getParagraphGraphic( int parNdx ) {
+        return getCell(parNdx).getGraphic();
+    }
+
+    /**
+     * This Node is shown to the user, centered over the area, when the area has no text content.
+     */
+    private ObjectProperty<Node> placeHolderProp = new SimpleObjectProperty<>(this, "placeHolder", null);
+    public final ObjectProperty<Node> placeholderProperty() { return placeHolderProp; }
+    public final void setPlaceholder(Node value) { placeHolderProp.set(value); }
+    public final Node getPlaceholder() { return placeHolderProp.get(); }
+    
     private ObjectProperty<ContextMenu> contextMenu = new SimpleObjectProperty<>(null);
     @Override public final ObjectProperty<ContextMenu> contextMenuObjectProperty() { return contextMenu; }
     // Don't remove as FXMLLoader doesn't recognise default methods !
@@ -442,14 +482,14 @@ public class GenericStyledArea<PS, SEG, S> extends Region
     @Override public final void setOnOutsideSelectionMousePressed(EventHandler<MouseEvent> handler) { onOutsideSelectionMousePressed.set( handler ); }
     @Override public final ObjectProperty<EventHandler<MouseEvent>> onOutsideSelectionMousePressedProperty() { return onOutsideSelectionMousePressed; }
     private final ObjectProperty<EventHandler<MouseEvent>> onOutsideSelectionMousePressed = new SimpleObjectProperty<>( e -> {
-        onOutsideSelectionMousePressProperty().get().accept(e);
+        moveTo( hit( e.getX(), e.getY() ).getInsertionIndex(), SelectionPolicy.CLEAR );
     });
 
     @Override public final EventHandler<MouseEvent> getOnInsideSelectionMousePressReleased() { return onInsideSelectionMousePressReleased.get(); }
     @Override public final void setOnInsideSelectionMousePressReleased(EventHandler<MouseEvent> handler) { onInsideSelectionMousePressReleased.set( handler ); }
     @Override public final ObjectProperty<EventHandler<MouseEvent>> onInsideSelectionMousePressReleasedProperty() { return onInsideSelectionMousePressReleased; }
     private final ObjectProperty<EventHandler<MouseEvent>> onInsideSelectionMousePressReleased = new SimpleObjectProperty<>( e -> {
-        onInsideSelectionMousePressReleaseProperty().get().accept(e);
+        moveTo( hit( e.getX(), e.getY() ).getInsertionIndex(), SelectionPolicy.CLEAR );
     });
 
     private final ObjectProperty<Consumer<Point2D>> onNewSelectionDrag = new SimpleObjectProperty<>(p -> {
@@ -476,7 +516,7 @@ public class GenericStyledArea<PS, SEG, S> extends Region
     @Override public final void setOnSelectionDropped(EventHandler<MouseEvent> handler) { onSelectionDropped.set( handler ); }
     @Override public final ObjectProperty<EventHandler<MouseEvent>> onSelectionDroppedProperty() { return onSelectionDropped; }
     private final ObjectProperty<EventHandler<MouseEvent>> onSelectionDropped = new SimpleObjectProperty<>( e -> {
-        onSelectionDropProperty().get().accept(e);
+        moveSelectedText( hit( e.getX(), e.getY() ).getInsertionIndex() );
     });
 
     // not a hook, but still plays a part in the default mouse behavior
@@ -557,7 +597,7 @@ public class GenericStyledArea<PS, SEG, S> extends Region
     // paragraphs and on the lower level are lines within a paragraph
     private final TwoLevelNavigator paragraphLineNavigator;
 
-    private boolean followCaretRequested = false;
+    private boolean paging, followCaretRequested = false;
 
     /* ********************************************************************** *
      *                                                                        *
@@ -754,6 +794,7 @@ public class GenericStyledArea<PS, SEG, S> extends Region
         );
 
         caretSelectionBind = new CaretSelectionBindImpl<>("main-caret", "main-selection",this);
+        caretSelectionBind.paragraphIndexProperty().addListener( this::skipOverFoldedParagraphs );
         caretSet.add(caretSelectionBind.getUnderlyingCaret());
         selectionSet.add(caretSelectionBind.getUnderlyingSelection());
 
@@ -774,6 +815,124 @@ public class GenericStyledArea<PS, SEG, S> extends Region
                 .subscribe(evt -> Event.fireEvent(this, evt));
 
         new GenericStyledAreaBehavior(this);
+
+        // Setup place holder visibility & placement 
+        final Val<Boolean> showPlaceholder = Val.create
+        (
+            () -> getLength() == 0 && ! isFocused(),
+            lengthProperty(), focusedProperty()
+        );
+
+        placeHolderProp.addListener( (ob,ov,newNode) -> displayPlaceHolder( showPlaceholder.getValue(), newNode ) );
+        showPlaceholder.addListener( (ob,ov,show) -> displayPlaceHolder( show, getPlaceholder() ) );
+        
+        if ( Platform.isFxApplicationThread() ) initInputMethodHandling();
+        else Platform.runLater( () -> initInputMethodHandling() );
+    }
+    
+    private void initInputMethodHandling()
+    {
+        if( Platform.isSupported( ConditionalFeature.INPUT_METHOD ) )
+        {
+            setOnInputMethodTextChanged( event -> handleInputMethodEvent(event) );
+            // Both of these have to be set for input composition to work !
+            setInputMethodRequests( new InputMethodRequests()
+            {
+                @Override public Point2D getTextLocation( int offset ) {
+                    Bounds charBounds = getCaretBounds().get();
+                    return new Point2D( charBounds.getMaxX() - 5, charBounds.getMaxY() );
+                }
+
+                @Override public int getLocationOffset( int x, int y ) {
+                    return 0;
+                }
+
+                @Override public void cancelLatestCommittedText() {}
+
+                @Override public String getSelectedText() {
+                    return getSelectedText();
+                }
+            });
+        }
+    }
+
+    // Start/Length of the text under input method composition
+    private int imstart;
+    private int imlength;
+
+    protected void handleInputMethodEvent( InputMethodEvent event )
+    {
+        if ( isEditable() && !isDisabled() )
+        {
+            // remove previous input method text (if any) or selected text
+            if ( imlength != 0 ) {
+                selectRange( imstart, imstart + imlength );
+            }
+
+            // Insert committed text
+            if ( event.getCommitted().length() != 0 ) {
+                replaceText( getSelection(), event.getCommitted() );
+            }
+
+            // Replace composed text
+            imstart = getSelection().getStart();
+            StringBuilder composed = new StringBuilder();
+
+            for ( InputMethodTextRun run : event.getComposed() ) {
+                composed.append( run.getText() );
+            }
+
+            replaceText( getSelection(), composed.toString() );
+            imlength = composed.length();
+
+            if ( imlength != 0 )
+            {
+                int pos = imstart;
+                for ( InputMethodTextRun run : event.getComposed() ) {
+                    int endPos = pos + run.getText().length();
+                    pos = endPos;
+                }
+
+                // Set caret position in composed text
+                int caretPos = event.getCaretPosition();
+                if ( caretPos >= 0 && caretPos < imlength ) {
+                    selectRange( imstart + caretPos, imstart + caretPos );
+                }
+            }
+        }
+    }
+
+    private Node placeholder;
+
+    private void displayPlaceHolder( boolean show, Node newNode )
+    {
+        if ( placeholder != null && (! show || newNode != placeholder) )
+        {
+            placeholder.layoutXProperty().unbind();
+            placeholder.layoutYProperty().unbind();
+            getChildren().remove( placeholder );
+            placeholder = null;
+            setClip( null );
+        }
+        if ( newNode != null && show && newNode != placeholder )
+        {
+            configurePlaceholder( newNode );
+            getChildren().add( newNode );
+            placeholder = newNode;
+        }
+    }
+
+    protected void configurePlaceholder( Node placeholder )
+    {
+        placeholder.layoutYProperty().bind( Bindings.createDoubleBinding( () ->
+            (getHeight() - placeholder.getLayoutBounds().getHeight()) / 2,
+            heightProperty(), placeholder.layoutBoundsProperty() )
+        );
+
+        placeholder.layoutXProperty().bind( Bindings.createDoubleBinding( () ->
+            (getWidth() - placeholder.getLayoutBounds().getWidth()) / 2,
+            widthProperty(), placeholder.layoutBoundsProperty() )
+        );
     }
 
     /* ********************************************************************** *
@@ -800,10 +959,15 @@ public class GenericStyledArea<PS, SEG, S> extends Region
                     getParagraphs().size() - 1, allParIndex)
             );
         }
-        Paragraph<PS, SEG, S> p = getParagraph(allParIndex);
-        for (int index = 0; index < getVisibleParagraphs().size(); index++) {
-            if (getVisibleParagraphs().get(index) == p) {
-                return Optional.of(index);
+        List<Cell<Paragraph<PS, SEG, S>, ParagraphBox<PS, SEG, S>>> visibleList = virtualFlow.visibleCells();
+        int firstVisibleParIndex = visibleList.get( 0 ).getNode().getIndex();
+        int targetIndex = allParIndex - firstVisibleParIndex;
+        
+        if ( allParIndex >= firstVisibleParIndex && targetIndex < visibleList.size() )
+        {
+            if ( visibleList.get( targetIndex ).getNode().getIndex() == allParIndex )
+            {
+                return Optional.of( targetIndex );
             }
         }
         return Optional.empty();
@@ -820,13 +984,7 @@ public class GenericStyledArea<PS, SEG, S> extends Region
                     getVisibleParagraphs().size() - 1, visibleParIndex)
             );
         }
-        Paragraph<PS, SEG, S> visibleP = getVisibleParagraphs().get(visibleParIndex);
-        for (int index = 0; index < getParagraphs().size(); index++) {
-            if (getParagraph(index) == visibleP) {
-                return index;
-            }
-        }
-        throw new AssertionError("Unreachable code");
+        return virtualFlow.visibleCells().get( visibleParIndex ).getNode().getIndex();
     }
 
     @Override
@@ -945,7 +1103,7 @@ public class GenericStyledArea<PS, SEG, S> extends Region
         int startPar = selection.getStartParagraphIndex();
         int endPar = selection.getEndParagraphIndex();
 
-        if(paragraph < startPar || paragraph > endPar) {
+        if(selection.getLength() == 0 || paragraph < startPar || paragraph > endPar) {
             return EMPTY_RANGE;
         }
 
@@ -1097,28 +1255,120 @@ public class GenericStyledArea<PS, SEG, S> extends Region
 
     @Override
     public void lineStart(SelectionPolicy policy) {
-        int columnPos = virtualFlow.getCell(getCurrentParagraph()).getNode().getCurrentLineStartPosition(caretSelectionBind.getUnderlyingCaret());
-        moveTo(getCurrentParagraph(), columnPos, policy);
+        moveTo(getCurrentParagraph(), getCurrentLineStartInParargraph(), policy);
     }
 
     @Override
     public void lineEnd(SelectionPolicy policy) {
-        int columnPos = virtualFlow.getCell(getCurrentParagraph()).getNode().getCurrentLineEndPosition(caretSelectionBind.getUnderlyingCaret());
-        moveTo(getCurrentParagraph(), columnPos, policy);
+        moveTo(getCurrentParagraph(), getCurrentLineEndInParargraph(), policy);
+    }
+
+    public int getCurrentLineStartInParargraph() {
+        return virtualFlow.getCell(getCurrentParagraph()).getNode().getCurrentLineStartPosition(caretSelectionBind.getUnderlyingCaret());
+    }
+
+    public int getCurrentLineEndInParargraph() {
+        return virtualFlow.getCell(getCurrentParagraph()).getNode().getCurrentLineEndPosition(caretSelectionBind.getUnderlyingCaret());
+    }
+    
+    private double caretPrevY = -1;
+    private LineSelection<PS, SEG, S> lineHighlighter;
+    private ObjectProperty<Paint> lineHighlighterFill; 
+    
+    /**
+     * The default fill is "highlighter" yellow. It can also be styled using CSS with:<br>
+     * <code>.styled-text-area .line-highlighter { -fx-fill: lime; }</code><br>
+     * CSS selectors from Path, Shape, and Node can also be used.
+     */
+    public void setLineHighlighterFill( Paint highlight )
+    {
+        if ( lineHighlighterFill != null && highlight != null ) {
+            lineHighlighterFill.set( highlight );
+        }
+        else {
+            boolean lineHighlightOn = isLineHighlighterOn();
+            if ( lineHighlightOn ) setLineHighlighterOn( false );
+            
+            if ( highlight == null ) lineHighlighterFill = null;
+            else lineHighlighterFill = new SimpleObjectProperty( highlight );
+            
+            if ( lineHighlightOn ) setLineHighlighterOn( true );
+        }
+    }
+    
+    public boolean isLineHighlighterOn() {
+        return lineHighlighter != null && selectionSet.contains( lineHighlighter ) ;
+    }
+    
+    /**
+     * Highlights the line that the main caret is on.<br>
+     * Line highlighting automatically follows the caret.
+     */
+    public void setLineHighlighterOn( boolean show )
+    {
+        if ( show )
+        {
+            if ( lineHighlighter != null ) return;
+            
+            lineHighlighter = new LineSelection<>( this, lineHighlighterFill );
+            
+            Consumer<Bounds> caretListener = b -> 
+            {
+                if ( lineHighlighter != null && (b.getMinY() != caretPrevY || getCaretColumn() == 1) ) {
+                    lineHighlighter.selectCurrentLine();
+                    caretPrevY = b.getMinY();
+                }
+            };
+            
+            caretBoundsProperty().addListener( (ob,ov,nv) -> nv.ifPresent( caretListener ) );
+            getCaretBounds().ifPresent( caretListener );
+            selectionSet.add( lineHighlighter );
+        }
+        else if ( lineHighlighter != null ) {
+            selectionSet.remove( lineHighlighter );
+            lineHighlighter.deselect();
+            lineHighlighter = null;
+            caretPrevY = -1;
+        }
     }
 
     @Override
     public void prevPage(SelectionPolicy selectionPolicy) {
-        showCaretAtBottom();
-        CharacterHit hit = hit(getTargetCaretOffset(), 1.0);
-        moveTo(hit.getInsertionIndex(), selectionPolicy);
+    	// Paging up and we're in the first frame then move/select to start.
+        if ( firstVisibleParToAllParIndex() == 0 ) {
+            caretSelectionBind.moveTo( 0, selectionPolicy );
+        }
+        else page( -1, selectionPolicy );
     }
 
     @Override
     public void nextPage(SelectionPolicy selectionPolicy) {
-        showCaretAtTop();
-        CharacterHit hit = hit(getTargetCaretOffset(), getViewportHeight() - 1.0);
-        moveTo(hit.getInsertionIndex(), selectionPolicy);
+        // Paging down and we're in the last frame then move/select to end.
+        if ( lastVisibleParToAllParIndex() == getParagraphs().size()-1 ) {
+            caretSelectionBind.moveTo( getLength(), selectionPolicy );
+        }
+        else page( +1, selectionPolicy );
+    }
+    
+    /**
+     * @param pgCount the number of pages to page up/down.
+     * <br>Negative numbers for paging up and positive for down.
+     */
+    private void page(int pgCount, SelectionPolicy selectionPolicy)
+    {
+        // Use underlying caret to get the same behaviour as navigating up/down a line where the x position is sticky
+        Optional<Bounds> cb = caretSelectionBind.getUnderlyingCaret().getCaretBounds();
+    	
+        paging = true; // Prevent scroll from reverting back to the current caret position
+        scrollYBy( pgCount * getViewportHeight() );
+
+        cb.map( this::screenToLocal ) // Place caret near the same on screen position as before
+            .map( b -> hit( b.getMinX(), b.getMinY()+b.getHeight()/2.0 ).getInsertionIndex() )
+            .ifPresent( i -> caretSelectionBind.moveTo( i, selectionPolicy ) );
+
+        // Adjust scroll by a few pixels to get the caret at the exact on screen location as before 
+        cb.ifPresent( prev -> getCaretBounds().map( newB -> newB.getMinY() - prev.getMinY() )
+            .filter( delta -> delta != 0.0 ).ifPresent( delta -> scrollYBy( delta ) ) ); 
     }
 
     @Override
@@ -1156,18 +1406,36 @@ public class GenericStyledArea<PS, SEG, S> extends Region
         content.setParagraphStyle(paragraph, paragraphStyle);
     }
 
+    /**
+     * If you want to preset the style to be used for inserted text. Note that useInitialStyleForInsertion overrides this if true.
+     */
+    public final void setTextInsertionStyle( S txtStyle ) { insertionTextStyle = txtStyle; }
+    public final S getTextInsertionStyle() { return insertionTextStyle; }
+    private S insertionTextStyle;
+
     @Override
     public final S getTextStyleForInsertionAt(int pos) {
-        if(useInitialStyleForInsertion.get()) {
+    	if ( insertionTextStyle != null ) {
+        	return insertionTextStyle;
+        } else if ( useInitialStyleForInsertion.get() ) {
             return initialTextStyle;
         } else {
             return content.getStyleAtPosition(pos);
         }
     }
 
+    private PS insertionParagraphStyle;
+    /**
+     * If you want to preset the style to be used. Note that useInitialStyleForInsertion overrides this if true.
+     */
+    public final void setParagraphInsertionStyle( PS paraStyle ) { insertionParagraphStyle = paraStyle; }
+    public final PS getParagraphInsertionStyle() { return insertionParagraphStyle; }
+
     @Override
     public final PS getParagraphStyleForInsertionAt(int pos) {
-        if(useInitialStyleForInsertion.get()) {
+    	if ( insertionParagraphStyle != null ) {
+        	return insertionParagraphStyle;
+        } else if ( useInitialStyleForInsertion.get() ) {
             return initialParagraphStyle;
         } else {
             return content.getParagraphStyleAtPosition(pos);
@@ -1215,6 +1483,133 @@ public class GenericStyledArea<PS, SEG, S> extends Region
         return new MultiChangeBuilder<>(this, initialNumOfChanges);
     }
 
+    /**
+     * Convenience method to fold (hide/collapse) the currently selected paragraphs,
+     * into (i.e. excluding) the first paragraph of the range.
+     *
+     * @param styleMixin Given a paragraph style PS, return a <b>new</b> PS that will activate folding.
+     *
+     * <p>See {@link #fold(int, int, UnaryOperator)} for more info.</p>
+     */
+    protected void foldSelectedParagraphs( UnaryOperator<PS> styleMixin )
+    {
+        IndexRange range = getSelection();
+        fold( range.getStart(), range.getEnd(), styleMixin );
+    }
+
+    /**
+     * Folds (hides/collapses) paragraphs from <code>start</code> to <code>
+     * end</code>, into (i.e. excluding) the first paragraph of the range.
+     *
+     * @param styleMixin Given a paragraph style PS, return a <b>new</b> PS that will activate folding.
+     *
+     * <p>See {@link #fold(int, int, UnaryOperator)} for more info.</p>
+     */
+    protected void foldParagraphs( int start, int end, UnaryOperator<PS> styleMixin )
+    {
+        start = getAbsolutePosition( start, 0 );
+        end = getAbsolutePosition( end, getParagraphLength( end ) );
+        fold( start, end, styleMixin );
+    }
+
+    /**
+     * Folds (hides/collapses) paragraphs from character position <code>startPos</code>
+     * to <code>endPos</code>, into (i.e. excluding) the first paragraph of the range.
+     *
+     * <p>Folding is achieved with the help of paragraph styling, which is applied to the paragraph's
+     * TextFlow object through the applyParagraphStyle BiConsumer (supplied in the constructor to
+     * GenericStyledArea). When applyParagraphStyle is to apply fold styling it just needs to set
+     * the TextFlow's visibility to collapsed for it to be folded. See {@code InlineCssTextArea},
+     * {@code StyleClassedTextArea}, and {@code RichTextDemo} for different ways of doing this.
+     * Also read the GitHub Wiki.</p>
+     *
+     * <p>The UnaryOperator <code>styleMixin</code> must return a
+     * different paragraph style Object to what was submitted.</p>
+     *
+     * @param styleMixin Given a paragraph style PS, return a <b>new</b> PS that will activate folding.
+     */
+    protected void fold( int startPos, int endPos, UnaryOperator<PS> styleMixin )
+    {
+        ReadOnlyStyledDocument<PS, SEG, S> subDoc;
+        UnaryOperator<Paragraph<PS, SEG, S>> mapper;
+
+        subDoc = (ReadOnlyStyledDocument<PS, SEG, S>) subDocument( startPos, endPos );
+        mapper = p -> p.setParagraphStyle( styleMixin.apply( p.getParagraphStyle() ) );
+
+        for ( int p = 1; p < subDoc.getParagraphCount(); p++ ) {
+            subDoc = subDoc.replaceParagraph( p, mapper ).get1();
+        }
+
+        replace( startPos, endPos, subDoc );
+        recreateParagraphGraphic( offsetToPosition( startPos, Bias.Backward ).getMajor() );
+        moveTo( startPos );
+    }
+
+    private void skipOverFoldedParagraphs( ObservableValue<? extends Integer> ob, Integer prevParagraph, Integer newParagraph )
+    {
+        if ( getCell( newParagraph ).isFolded() )
+        {
+            // Prevent Ctrl+A and Ctrl+End breaking when the last paragraph is folded
+            // github.com/FXMisc/RichTextFX/pull/965#issuecomment-706268116
+            if ( newParagraph == getParagraphs().size() - 1 ) return;
+
+            int skip = (newParagraph - prevParagraph > 0) ? +1 : -1;
+            int p = newParagraph + skip;
+
+            while ( p > 0 && p < getParagraphs().size() ) {
+                if ( getCell( p ).isFolded() )  p += skip;
+                else break;
+            }
+
+            if ( p < 0 || p == getParagraphs().size() ) p = prevParagraph;
+            int col = Math.min( getCaretColumn(), getParagraphLength( p ) );
+
+            if ( getSelection().getLength() == 0 )  moveTo( p, col );
+            else moveTo( p, col, SelectionPolicy.EXTEND );
+        }
+    }
+
+    /**
+     * Unfolds paragraphs <code>startingFrom</code> onwards for the currently folded block.
+     *
+     * <p>The UnaryOperator <code>styleMixin</code> must return a
+     * different paragraph style Object to what was submitted.</p>
+     *
+     * @param isFolded Given a paragraph style PS check if it's folded.
+     * @param styleMixin Given a paragraph style PS, return a <b>new</b> PS that excludes fold styling.
+     */
+    protected void unfoldParagraphs( int startingFrom, Predicate<PS> isFolded, UnaryOperator<PS> styleMixin )
+    {
+        LiveList<Paragraph<PS, SEG, S>> pList = getParagraphs();
+        int to = startingFrom;
+
+        while ( ++to < pList.size() )
+        {
+            if ( ! isFolded.test( pList.get( to ).getParagraphStyle() ) ) break;
+        }
+
+        if ( --to > startingFrom )
+        {
+            ReadOnlyStyledDocument<PS, SEG, S> subDoc;
+            UnaryOperator<Paragraph<PS, SEG, S>> mapper;
+
+            int startPos = getAbsolutePosition( startingFrom, 0 );
+            int endPos = getAbsolutePosition( to, getParagraphLength( to ) );
+
+            subDoc = (ReadOnlyStyledDocument<PS, SEG, S>) subDocument( startPos, endPos );
+            mapper = p -> p.setParagraphStyle( styleMixin.apply( p.getParagraphStyle() ) );
+
+            for ( int p = 1; p < subDoc.getParagraphCount(); p++ ) {
+                subDoc = subDoc.replaceParagraph( p, mapper ).get1();
+            }
+
+            replace( startPos, endPos, subDoc );
+
+            moveTo( startingFrom, getParagraphLength( startingFrom ) );
+            recreateParagraphGraphic( startingFrom );
+        }
+    }
+
     /* ********************************************************************** *
      *                                                                        *
      * Public API                                                             *
@@ -1236,6 +1631,40 @@ public class GenericStyledArea<PS, SEG, S> extends Region
      *                                                                        *
      * ********************************************************************** */
 
+    private BooleanProperty autoHeightProp = new SimpleBooleanProperty();
+
+    public BooleanProperty autoHeightProperty() {
+        return autoHeightProp;
+    }
+    public void setAutoHeight( boolean value ) {
+        autoHeightProp.set( value );
+    }
+    public boolean isAutoHeight() {
+        return autoHeightProp.get();
+    }
+
+    @Override
+    protected double computePrefHeight( double width )
+    {
+        if ( autoHeightProp.get() )
+        {
+            if ( getWidth() == 0.0 ) Platform.runLater( () -> requestLayout() );
+            else
+            {
+                double height = 0.0;
+                Insets in = getInsets();
+
+                for ( int p = 0; p < getParagraphs().size(); p++ ) {
+                    height += getCell( p ).getHeight();
+                }
+                if ( height > 0.0 ) {
+                    return height + in.getTop() + in.getBottom();
+                }
+            }
+        }
+        return super.computePrefHeight( width );
+    }
+
     @Override
     protected void layoutChildren() {
         Insets ins = getInsets();
@@ -1245,13 +1674,19 @@ public class GenericStyledArea<PS, SEG, S> extends Region
                     getWidth() - ins.getLeft() - ins.getRight(),
                     getHeight() - ins.getTop() - ins.getBottom());
 
-            if(followCaretRequested) {
-                followCaretRequested = false;
+            if(followCaretRequested && ! paging) {
                 try (Guard g = viewportDirty.suspend()) {
                     followCaret();
                 }
             }
+            followCaretRequested = false;
+            paging = false;
         });
+
+        Node holder = placeholder;
+        if (holder != null && holder.isResizable() && holder.isManaged()) {
+            holder.autosize();
+        }
     }
 
     /* ********************************************************************** *
@@ -1433,12 +1868,13 @@ public class GenericStyledArea<PS, SEG, S> extends Region
                             if (p == null) {
                                 // create & configure path
                                 Val<IndexRange> range = Val.create(
-                                        () -> boxIndex != -1
-                                                ? getParagraphSelection(selection, boxIndex)
+                                        () -> box.getIndex() != -1
+                                                ? getParagraphSelection(selection, box.getIndex())
                                                 : EMPTY_RANGE,
                                         selection.rangeProperty()
                                 );
                                 SelectionPath path = new SelectionPath(range);
+                                path.getStyleClass().add( selection.getSelectionName() );
                                 selection.configureSelectionPath(path);
 
                                 box.selectionsProperty().put(selection, path);
@@ -1490,9 +1926,37 @@ public class GenericStyledArea<PS, SEG, S> extends Region
         virtualFlow.layout();
 
         Cell<Paragraph<PS, SEG, S>, ParagraphBox<PS, SEG, S>> cell = virtualFlow.getCell(parIdx);
-        Bounds caretBounds = cell.getNode().getCaretBounds(caretSelectionBind.getUnderlyingCaret());
+        Bounds caretBounds = caretSelectionBind.getUnderlyingCaret().getLayoutBounds();
         double graphicWidth = cell.getNode().getGraphicPrefWidth();
         Bounds region = extendLeft(caretBounds, graphicWidth);
+        double scrollX = virtualFlow.getEstimatedScrollX();
+
+        // Ordinarily when a caret ends a selection in the target paragraph and scrolling left is required to follow 
+        // the caret then the selection won't be visible. So here we check for this scenario and adjust if needed.
+        if ( ! isWrapText() && scrollX > 0.0 && getParagraphSelection( parIdx ).getLength() > 0 )
+        {
+            double visibleLeftX = cell.getNode().getWidth() * scrollX / 100 - getWidth() + graphicWidth;
+
+            CaretNode selectionStart = new CaretNode( "", this, getSelection().getStart() );
+            cell.getNode().caretsProperty().add( selectionStart );
+            Bounds startBounds = cell.getNode().getCaretBounds( selectionStart );
+            cell.getNode().caretsProperty().remove( selectionStart );
+
+            if ( startBounds.getMinX() - graphicWidth < visibleLeftX ) {
+                region = extendLeft( startBounds, graphicWidth );
+            }
+        }
+
+        // Addresses https://github.com/FXMisc/RichTextFX/issues/937#issuecomment-674319602
+        if ( parIdx == getParagraphs().size()-1 && cell.getNode().getLineCount() == 1 )
+        {
+            region = new BoundingBox // Correcting the region's height
+            (
+                region.getMinX(), region.getMinY(), region.getWidth(),
+                cell.getNode().getLayoutBounds().getHeight()
+            );
+        }
+
         virtualFlow.show(parIdx, region);
     }
 
@@ -1563,10 +2027,6 @@ public class GenericStyledArea<PS, SEG, S> extends Region
      *                                                                        *
      * ********************************************************************** */
 
-    private static final CssMetaData<GenericStyledArea<?, ?, ?>, Paint> HIGHLIGHT_FILL = new CustomCssMetaData<>(
-            "-fx-highlight-fill", StyleConverter.getPaintConverter(), Color.DODGERBLUE, s -> s.highlightFill
-    );
-
     private static final CssMetaData<GenericStyledArea<?, ?, ?>, Paint> HIGHLIGHT_TEXT_FILL = new CustomCssMetaData<>(
             "-fx-highlight-text-fill", StyleConverter.getPaintConverter(), Color.WHITE, s -> s.highlightTextFill
     );
@@ -1576,7 +2036,6 @@ public class GenericStyledArea<PS, SEG, S> extends Region
     static {
         List<CssMetaData<? extends Styleable, ?>> styleables = new ArrayList<>(Region.getClassCssMetaData());
 
-        styleables.add(HIGHLIGHT_FILL);
         styleables.add(HIGHLIGHT_TEXT_FILL);
 
         CSS_META_DATA_LIST = Collections.unmodifiableList(styleables);
@@ -1591,37 +2050,4 @@ public class GenericStyledArea<PS, SEG, S> extends Region
         return CSS_META_DATA_LIST;
     }
 
-
-    // Note: this code should be moved to `onOutsideSelectionMousePressed` property
-    // in the next major release before removing this deprecated field
-    @Deprecated private final ObjectProperty<Consumer<MouseEvent>> onOutsideSelectionMousePress = new SimpleObjectProperty<>( e -> {
-        CharacterHit hit = hit(e.getX(), e.getY());
-        moveTo(hit.getInsertionIndex(), SelectionPolicy.CLEAR);
-    });
-    @Deprecated
-    @Override public final ObjectProperty<Consumer<MouseEvent>> onOutsideSelectionMousePressProperty() {
-        return onOutsideSelectionMousePress;
-    }
-
-    // Note: this code should be moved to `onInsideSelectionMouseReleased` property
-    // in the next major release before removing this deprecated field
-    @Deprecated private final ObjectProperty<Consumer<MouseEvent>> onInsideSelectionMousePressRelease = new SimpleObjectProperty<>( e -> {
-        CharacterHit hit = hit(e.getX(), e.getY());
-        moveTo(hit.getInsertionIndex(), SelectionPolicy.CLEAR);
-    });
-    @Deprecated
-    @Override public final ObjectProperty<Consumer<MouseEvent>> onInsideSelectionMousePressReleaseProperty() {
-        return onInsideSelectionMousePressRelease;
-    }
-
-    // Note: this code should be moved to `onSelectionDropped` property
-    // in the next major release before removing this deprecated field
-    @Deprecated private final ObjectProperty<Consumer<MouseEvent>> onSelectionDrop = new SimpleObjectProperty<>( e -> {
-        CharacterHit hit = hit(e.getX(), e.getY());
-        moveSelectedText(hit.getInsertionIndex());
-    });
-    @Deprecated
-    @Override public final ObjectProperty<Consumer<MouseEvent>> onSelectionDropProperty() {
-        return onSelectionDrop;
-    }
 }
