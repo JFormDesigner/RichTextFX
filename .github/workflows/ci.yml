@@ -23,9 +23,9 @@ jobs:
         # - Java LTS versions (11, 17, ...)
         # - lastest Java version(s)
         java:
-#          - 1.8
+          - 1.8
           - 11  # LTS
-#          - 15
+          - 15
 
     steps:
       - uses: actions/checkout@v2
@@ -51,6 +51,3 @@ jobs:
 
       - name: Build with Gradle
         run: ./gradlew assemble
-
-      - name: Test with Gradle
-        run: ./gradlew check --info --stacktrace
