@@ -47,7 +47,7 @@ dependencies {
     integrationTestCompile "org.testfx:openjfx-monocle:8u76-b04"
 
     if( JavaVersion.current() >= JavaVersion.VERSION_11 ) {
-        def javafxVersion = "11.0.2"
+        def javafxVersion = JavaVersion.current() >= JavaVersion.VERSION_15 ? "15.0.1" : "11.0.2"
         def osName = System.getProperty( "os.name" ).toLowerCase()
         def platform = osName.startsWith( "windows" ) ? "win" : (osName.startsWith( "mac" ) ? "mac" : "linux")
 
